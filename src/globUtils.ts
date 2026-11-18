@@ -1,6 +1,6 @@
 export interface GitignoreRule {
-	pattern: string;
-	negated: boolean;
+    pattern: string;
+    negated: boolean;
 }
 
 /**
@@ -8,26 +8,26 @@ export interface GitignoreRule {
  * Handles dot, question, star, and other regex metacharacters.
  */
 export function globToRegExp(pattern: string): RegExp {
-	let source = "";
-	for (let i = 0; i < pattern.length; i++) {
-		const char = pattern[i];
-		if (char === "*" && pattern[i + 1] === "*") {
-			if (pattern[i + 2] === "/") {
-				source += "(?:.*/)?";
-				i += 2;
-			} else {
-				source += ".*";
-				i++;
-			}
-		} else if (char === "*") {
-			source += "[^/]*";
-		} else if (char === "?") {
-			source += "[^/]";
-		} else {
-			source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-		}
-	}
-	return new RegExp(`^${source}$`);
+    let source = "";
+    for (let i = 0; i < pattern.length; i++) {
+        const char = pattern[i];
+        if (char === "*" && pattern[i + 1] === "*") {
+            if (pattern[i + 2] === "/") {
+                source += "(?:.*/)?";
+                i += 2;
+            } else {
+                source += ".*";
+                i++;
+            }
+        } else if (char === "*") {
+            source += "[^/]*";
+        } else if (char === "?") {
+            source += "[^/]";
+        } else {
+            source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+        }
+    }
+    return new RegExp(`^${source}$`);
 }
 
 // Parse .gitignore text content into glob exclude patterns and negation patterns.
@@ -39,93 +39,93 @@ export function globToRegExp(pattern: string): RegExp {
 //
 // Returns separate patterns (to exclude) and negationPatterns (to re-include).
 export function parseGitignoreContent(text: string, dirPrefix: string = ""): {
-	patterns: string[];
-	negationPatterns: string[];
-	rules: GitignoreRule[];
+    patterns: string[];
+    negationPatterns: string[];
+    rules: GitignoreRule[];
 } {
-	const patterns: string[] = [];
-	const negationPatterns: string[] = [];
-	const rules: GitignoreRule[] = [];
-	const lines = text.split(/\r?\n/);
-	for (const line of lines) {
-		const trimmed = line.trim();
+    const patterns: string[] = [];
+    const negationPatterns: string[] = [];
+    const rules: GitignoreRule[] = [];
+    const lines = text.split(/\r?\n/);
+    for (const line of lines) {
+        const trimmed = line.trim();
 
-		// Skip empty lines and comments
-		if (!trimmed || trimmed.startsWith("#")) {
-			continue;
-		}
-		// A backslash escapes the following character in gitignore. Keep the
-		// escaped character literal for the glob matcher.
-		const unescaped = trimmed.replace(/\\([#! ])/g, "$1");
+        // Skip empty lines and comments
+        if (!trimmed || trimmed.startsWith("#")) {
+            continue;
+        }
+        // A backslash escapes the following character in gitignore. Keep the
+        // escaped character literal for the glob matcher.
+        const unescaped = trimmed.replace(/\\([#! ])/g, "$1");
 
-		// Handle negation patterns separately - add them at the end
-		// so they can re-include files previously excluded
-		if (unescaped.startsWith("!") && !trimmed.startsWith("\\!")) {
-			const negated = unescaped.slice(1).trim();
-			if (negated) {
-				let negGlob = negated;
-				if (negGlob.endsWith("/")) {
-					negGlob = negGlob.slice(0, -1);
-				}
-				if (negGlob.startsWith("/")) {
-					negGlob = dirPrefix + negGlob.slice(1);
-				} else {
-					negGlob = dirPrefix + "**/" + negGlob;
-				}
-				negationPatterns.push(negGlob);
-				rules.push({
-					pattern: negGlob,
-					negated: true
-				});
-			}
-			continue;
-		}
+        // Handle negation patterns separately - add them at the end
+        // so they can re-include files previously excluded
+        if (unescaped.startsWith("!") && !trimmed.startsWith("\\!")) {
+            const negated = unescaped.slice(1).trim();
+            if (negated) {
+                let negGlob = negated;
+                if (negGlob.endsWith("/")) {
+                    negGlob = negGlob.slice(0, -1);
+                }
+                if (negGlob.startsWith("/")) {
+                    negGlob = dirPrefix + negGlob.slice(1);
+                } else {
+                    negGlob = dirPrefix + "**/" + negGlob;
+                }
+                negationPatterns.push(negGlob);
+                rules.push({
+                    pattern: negGlob,
+                    negated: true
+                });
+            }
+            continue;
+        }
 
-		// Convert .gitignore pattern to glob pattern
-		let globPattern = unescaped;
+        // Convert .gitignore pattern to glob pattern
+        let globPattern = unescaped;
 
-		// Remove trailing slashes
-		if (globPattern.endsWith("/")) {
-			globPattern = globPattern.slice(0, -1);
-		}
+        // Remove trailing slashes
+        if (globPattern.endsWith("/")) {
+            globPattern = globPattern.slice(0, -1);
+        }
 
-		// Detect wildcard on the original pattern (before the '**/' prefix is
-		// added), otherwise a bare directory name would be misclassified as a
-		// wildcard and miss its '/**' contents entry.
-		const hasWildcard = globPattern.includes("*");
+        // Detect wildcard on the original pattern (before the '**/' prefix is
+        // added), otherwise a bare directory name would be misclassified as a
+        // wildcard and miss its '/**' contents entry.
+        const hasWildcard = globPattern.includes("*");
 
-		// Handle patterns starting with /
-		if (globPattern.startsWith("/")) {
-			globPattern = dirPrefix + globPattern.slice(1);
-		} else {
-			// If pattern doesn't start with /, it can match anywhere
-			globPattern = dirPrefix + "**/" + globPattern;
-		}
+        // Handle patterns starting with /
+        if (globPattern.startsWith("/")) {
+            globPattern = dirPrefix + globPattern.slice(1);
+        } else {
+            // If pattern doesn't start with /, it can match anywhere
+            globPattern = dirPrefix + "**/" + globPattern;
+        }
 
-		// Handle directory patterns (without wildcard)
-		if (!hasWildcard) {
-			// Add both the path itself and everything inside
-			patterns.push(globPattern);
-			patterns.push(globPattern + "/**");
-			rules.push({
-				pattern: globPattern,
-				negated: false
-			});
-			rules.push({
-				pattern: globPattern + "/**",
-				negated: false
-			});
-		} else {
-			patterns.push(globPattern);
-			rules.push({
-				pattern: globPattern,
-				negated: false
-			});
-		}
-	}
-	return {
-		patterns,
-		negationPatterns,
-		rules
-	};
+        // Handle directory patterns (without wildcard)
+        if (!hasWildcard) {
+            // Add both the path itself and everything inside
+            patterns.push(globPattern);
+            patterns.push(globPattern + "/**");
+            rules.push({
+                pattern: globPattern,
+                negated: false
+            });
+            rules.push({
+                pattern: globPattern + "/**",
+                negated: false
+            });
+        } else {
+            patterns.push(globPattern);
+            rules.push({
+                pattern: globPattern,
+                negated: false
+            });
+        }
+    }
+    return {
+        patterns,
+        negationPatterns,
+        rules
+    };
 }

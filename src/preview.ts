@@ -5,160 +5,109 @@ import * as path from "path";
 import * as crypto from "crypto";
 const pendingPreviewDeletions = new Map<string, vscode.Disposable>();
 export class PreviewManager {
-	private panel: vscode.WebviewPanel | undefined;
-	constructor(private context: vscode.ExtensionContext) {
-		void this.cleanupStalePreviews();
-	}
-	public dispose(): void {
-		this.disposePreviewListeners();
-		this.disposePanel();
-	}
-	private disposePreviewListeners(): void {
-		for (const disposable of pendingPreviewDeletions.values()) {
-			disposable.dispose();
-		}
-		pendingPreviewDeletions.clear();
-	}
-	private async cleanupStalePreviews(): Promise<void> {
-		const previewDir = vscode.Uri.joinPath(this.context.globalStorageUri, "preview");
-		try {
-			const entries = await vscode.workspace.fs.readDirectory(previewDir);
-			await Promise.all(entries
-				.filter(([, type]) => type === vscode.FileType.File)
-				.map(([name]) => vscode.workspace.fs.delete(vscode.Uri.joinPath(previewDir, name), { useTrash: false })));
-		} catch {
-			// The directory may not exist on first activation.
-		}
-	}
-	public async showPreview(files: vscode.Uri[], onConfirm: () => Promise<void>, onCancel: () => void) {
-		if (this.panel) {
-			this.panel.reveal();
-			return;
-		}
-		await new Promise<void>((resolve, reject) => {
-			this.openPreview(files, onConfirm, onCancel, resolve, reject);
-		});
-	}
-	private openPreview(files: vscode.Uri[], onConfirm: () => Promise<void>, onCancel: () => void, resolve: () => void, reject: (reason: unknown) => void) {
-		this.panel = vscode.window.createWebviewPanel("formatDirPreview", t("formatDirectory.previewTitle"), vscode.ViewColumn.One, {
-			enableScripts: true,
-			retainContextWhenHidden: true
-		});
-		this.panel.webview.html = this.getWebviewContent(files);
-		let actionTaken = false;
-		this.panel.webview.onDidReceiveMessage(async message => {
-			switch (message.command) {
-				case "confirm":
-					if (actionTaken) {
-						return;
-					}
-					actionTaken = true;
-					try {
-						await onConfirm();
-						resolve();
-					} catch (error) {
-						reject(error);
-					} finally {
-						this.disposePanel();
-					}
-					break;
-				case "cancel":
-					if (actionTaken) {
-						return;
-					}
-					actionTaken = true;
-					onCancel();
-					this.disposePanel();
-					resolve();
-					break;
-				case "openDiff":
-					await this.openDiff(vscode.Uri.parse(message.uri));
-					break;
-			}
-		}, undefined, this.context.subscriptions);
-		this.panel.onDidDispose(() => {
-			this.panel = undefined;
-			if (!actionTaken) {
-				onCancel();
-				resolve();
-			}
-		}, null, this.context.subscriptions);
-	}
-	private disposePanel() {
-		if (this.panel) {
-			this.panel.dispose();
-			this.panel = undefined;
-		}
-	}
-	private async createPreviewDir(): Promise<vscode.Uri> {
-		const previewDir = vscode.Uri.joinPath(this.context.globalStorageUri, "preview");
-		try {
-			await vscode.workspace.fs.createDirectory(previewDir);
-		} catch { }
-		return previewDir;
-	}
-	private async openDiff(uri: vscode.Uri) {
-		try {
-			const document = await vscode.workspace.openTextDocument(uri);
-			const editorConfig = vscode.workspace.getConfiguration("editor", document.uri);
-			const options = {
-				insertSpaces: editorConfig.get<boolean>("insertSpaces", true),
-				tabSize: editorConfig.get<number>("tabSize", 4)
-			};
-			const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>("vscode.executeFormatDocumentProvider", document.uri, options);
-			if (!edits || edits.length === 0) {
-				vscode.window.showInformationMessage(t("formatDirectory.previewDiffNoChanges"));
-				return;
-			}
-			let content = document.getText();
-			const sortedEdits = [...edits].sort((a, b) => {
-				const lineDiff = b.range.start.line - a.range.start.line;
-				if (lineDiff !== 0) return lineDiff;
-				return b.range.start.character - a.range.start.character;
-			});
-			for (const edit of sortedEdits) {
-				const startOffset = document.offsetAt(edit.range.start);
-				const endOffset = document.offsetAt(edit.range.end);
-				content = content.slice(0, startOffset) + edit.newText + content.slice(endOffset);
-			}
-			const previewDir = await this.createPreviewDir();
-			const hash = crypto.createHash("sha256").update(`${uri.toString()}\n${Date.now()}\n${Math.random()}`).digest("hex").slice(0, 16);
-			const previewUri = vscode.Uri.joinPath(previewDir, `${hash}_${path.basename(uri.fsPath)}.preview`);
-			await vscode.workspace.fs.writeFile(previewUri, Buffer.from(content, "utf8"));
-			await vscode.commands.executeCommand("vscode.diff", uri, previewUri, `Preview: ${path.basename(uri.fsPath)}`);
-			const previewKey = previewUri.toString();
-			const closeDisposable = vscode.workspace.onDidCloseTextDocument(doc => {
-				if (doc.uri.toString() === previewKey) {
-					vscode.workspace.fs.delete(previewUri).then(() => { }, () => { });
-					const d = pendingPreviewDeletions.get(previewKey);
-					if (d) {
-						d.dispose();
-						pendingPreviewDeletions.delete(previewKey);
-					}
-				}
-			});
-			pendingPreviewDeletions.set(previewKey, closeDisposable);
-		} catch (e: unknown) {
-			const message = e instanceof Error ? e.message : String(e);
-			vscode.window.showErrorMessage(t("formatDirectory.previewDiffFailed", message));
-		}
-	}
-	private getWebviewContent(files: vscode.Uri[]): string {
-		const nonce = crypto.randomBytes(16).toString("hex");
-		const escapedTitle = escapeHtml(t("formatDirectory.previewTitle"));
-		const escapedDesc = escapeHtml(t("formatDirectory.previewDescription"));
-		const escapedApply = escapeHtml(t("formatDirectory.applyChanges"));
-		const escapedCancel = escapeHtml(t("formatDirectory.cancelFormat"));
-		const fileData = files.map(uri => {
-			const fsPath = uri.fsPath;
-			return {
-				uri: uri.toString(),
-				baseName: path.basename(fsPath),
-				fullPath: fsPath
-			};
-		});
-		const fileDataJson = JSON.stringify(fileData);
-		return `<!DOCTYPE html>
+    private panel: vscode.WebviewPanel | undefined;
+    constructor(private context: vscode.ExtensionContext) {
+        void this.cleanupStalePreviews();
+    }
+    public dispose(): void {
+        this.disposePreviewListeners();
+        this.disposePanel();
+    }
+    private disposePreviewListeners(): void {
+        for (const disposable of pendingPreviewDeletions.values()) {
+            disposable.dispose();
+        }
+        pendingPreviewDeletions.clear();
+    }
+    private async cleanupStalePreviews(): Promise<void> {
+        const previewDir = vscode.Uri.joinPath(this.context.globalStorageUri, "preview");
+        try {
+            const entries = await vscode.workspace.fs.readDirectory(previewDir);
+            await Promise.all(entries
+                .filter(([, type]) => type === vscode.FileType.File)
+                .map(([name]) => vscode.workspace.fs.delete(vscode.Uri.joinPath(previewDir, name), { useTrash: false })));
+        } catch {
+            // The directory may not exist on first activation.
+        }
+    }
+    public async showPreview(files: vscode.Uri[], onConfirm: () => Promise<void>, onCancel: () => void) {
+        if (this.panel) {
+            this.panel.reveal();
+            return;
+        }
+        await new Promise<void>((resolve, reject) => {
+            this.openPreview(files, onConfirm, onCancel, resolve, reject);
+        });
+    }
+    private openPreview(files: vscode.Uri[], onConfirm: () => Promise<void>, onCancel: () => void, resolve: () => void, reject: (reason: unknown) => void) {
+        this.panel = vscode.window.createWebviewPanel("formatDirPreview", t("formatDirectory.previewTitle"), vscode.ViewColumn.One, {
+            enableScripts: true,
+            retainContextWhenHidden: true
+        });
+        this.panel.webview.html = this.getWebviewContent(files);
+        let actionTaken = false;
+        this.panel.webview.onDidReceiveMessage(async message => {
+            switch (message.command) {
+                case "confirm":
+                    if (actionTaken) {
+                        return;
+                    }
+                    actionTaken = true;
+                    try {
+                        await onConfirm();
+                        resolve();
+                    } catch (error) {
+                        reject(error);
+                    } finally {
+                        this.disposePanel();
+                    }
+                    break;
+                case "cancel":
+                    if (actionTaken) {
+                        return;
+                    }
+                    actionTaken = true;
+                    onCancel();
+                    this.disposePanel();
+                    resolve();
+                    break;
+                case "openFile":
+                    if (!actionTaken && files.some(uri => uri.toString() === message.uri)) {
+                        await vscode.window.showTextDocument(vscode.Uri.parse(message.uri), { preview: true });
+                    }
+                    break;
+            }
+        }, undefined, this.context.subscriptions);
+        this.panel.onDidDispose(() => {
+            this.panel = undefined;
+            if (!actionTaken) {
+                onCancel();
+                resolve();
+            }
+        }, null, this.context.subscriptions);
+    }
+    private disposePanel() {
+        if (this.panel) {
+            this.panel.dispose();
+            this.panel = undefined;
+        }
+    }
+    private getWebviewContent(files: vscode.Uri[]): string {
+        const nonce = crypto.randomBytes(16).toString("hex");
+        const escapedTitle = escapeHtml(t("formatDirectory.previewTitle"));
+        const escapedDesc = escapeHtml(t("formatDirectory.previewDescription"));
+        const escapedApply = escapeHtml(t("formatDirectory.applyChanges"));
+        const escapedCancel = escapeHtml(t("formatDirectory.cancelFormat"));
+        const fileData = files.map(uri => {
+            const fsPath = uri.fsPath;
+            return {
+                uri: uri.toString(),
+                baseName: path.basename(fsPath),
+                fullPath: fsPath
+            };
+        });
+        const fileDataJson = JSON.stringify(fileData);
+        return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -255,7 +204,7 @@ export class PreviewManager {
                 div.style.top = (i * ITEM_HEIGHT) + 'px';
                 div.style.width = '100%';
                 div.style.height = ITEM_HEIGHT + 'px';
-                div.onclick = () => vscode.postMessage({ command: 'openDiff', uri: f.uri });
+                div.onclick = () => vscode.postMessage({ command: 'openFile', uri: f.uri });
                 div.innerHTML = '<span class="file-icon">\uD83D\uDCC4</span><span class="file-path">' + escapeHtml(f.baseName) + '</span><span class="file-full-path">' + escapeHtml(f.fullPath) + '</span>';
                 frag.appendChild(div);
             }
@@ -290,5 +239,5 @@ export class PreviewManager {
     </script>
 </body>
 </html>`;
-	}
+    }
 }

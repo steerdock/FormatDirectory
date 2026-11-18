@@ -4,10 +4,10 @@ that formats entire directories or individual files using your configured VS Cod
 
 ## Changelog
 
-### v1.2.2
-- **i18n**: Added the missing `command.formatWithConfig` label to all supported `package.nls` language files.
-- **i18n**: Completed runtime translations for `backupFailed`, `alreadyRunning`, and `filesAlreadyFormatted` across all 19 supported languages, preventing unintended English fallback messages.
-- **Test**: Verified localization key coverage for all 19 languages; compilation, lint, and the 15-test suite pass.
+### v1.2.4
+- **Bug Fix**: Batch formatting now closes clean temporary tabs after each file, preventing hundreds or thousands of editor tabs from accumulating while preserving existing tabs.
+- **Reliability**: Temporary tabs with unsaved changes remain open, cleanup failures do not invalidate successful formatting, and switching editors during formatting does not force focus back.
+- **Test**: Added 7 regression tests covering temporary-tab cleanup, a 1,000-file batch, existing-tab preservation, cancellation, formatter errors, failed saves, and focus handling; all 31 tests, compilation, and lint pass.
 
 See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes.
 
@@ -174,7 +174,9 @@ Add to your `settings.json`:
 
 ## How It Works
 
-The extension uses VS Code's built-in formatting API (`vscode.executeFormatDocumentProvider`), which means it will:
+The extension opens each target file and runs VS Code's **Format Document** command (`editor.action.formatDocument`), using the same default formatter selection as manual document formatting. These editor operations run sequentially to keep each command on the correct file. The preview option shows a target-file confirmation list; clicking a file opens its original content rather than generating a diff with a potentially different formatter.
+
+This means it will:
 
 1. **Use your configured formatters**: Automatically applies the formatter you've set for each file type (e.g., Prettier for JavaScript, Black for Python)
 2. **Respect your settings**: Reads formatting preferences from your `settings.json`, including:
@@ -183,6 +185,8 @@ The extension uses VS Code's built-in formatting API (`vscode.executeFormatDocum
    - `editor.defaultFormatter` - Default formatter for each language
    - Language-specific formatter settings (e.g., `prettier.singleQuote`, `python.formatting.provider`)
 3. **Apply workspace settings**: Uses workspace-specific settings if available
+
+Formatter selection follows this order: a language-specific `editor.defaultFormatter` (such as `[php]`), then `formatdir.formatterPriority` for that language, then the general `editor.defaultFormatter`. VS Code resolves user, workspace, and workspace-folder settings within each level. `editor.formatOnSave` controls save-time formatting separately.
 
 Make sure you have the appropriate formatters installed and configured in your `settings.json`.
 
