@@ -1,0 +1,69 @@
+name: Publish to Open VSX
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: open-vsx-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Test and publish extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: open-vsx
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Verify release tag and package versions
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const pkg = require('./package.json');
+          const lock = require('./package-lock.json');
+          assert.equal(process.env.GITHUB_REF_TYPE, 'tag', 'Select a version tag when running this workflow manually.');
+          assert.equal(process.env.GITHUB_REF_NAME, `v${pkg.version}`, 'Release tag must match package.json version.');
+          assert.equal(lock.version, pkg.version, 'package-lock.json version must match package.json.');
+          assert.equal(lock.packages[''].version, pkg.version, 'Lockfile root package version must match package.json.');
+          console.log(`Publishing ${pkg.publisher}.${pkg.name}@${pkg.version}`);
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile, lint and test
+        run: npm test
+
+      # First publication requires a PAT. Once trusted publishing is configured,
+      # remove the OVSX_PAT secret to switch to OIDC authentication.
+      - name: Publish to Open VSX
+        shell: bash
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [[ -n "$OVSX_PAT" ]]; then
+            npx --yes ovsx@latest publish
+          else
+            npx --yes ovsx@latest publish --trusted-publishing
+          fi

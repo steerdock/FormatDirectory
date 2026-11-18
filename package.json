@@ -22,12 +22,12 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/steerdock/format-dir"
+        "url": "https://github.com/steerdock/FormatDirectory"
     },
     "bugs": {
-        "url": "https://github.com/steerdock/format-dir/issues"
+        "url": "https://github.com/steerdock/FormatDirectory/issues"
     },
-    "homepage": "https://github.com/steerdock/format-dir#readme",
+    "homepage": "https://github.com/steerdock/FormatDirectory#readme",
     "license": "MIT",
     "icon": "icon_v2.png",
     "main": "./out/extension.js",

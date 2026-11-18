@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Format Directory! We welcome cont
 
 ### Reporting Bugs
 
-If you find a bug, please [open an issue](https://github.com/steerdock/format-dir/issues) on GitHub. Include as much detail as possible, such as:
+If you find a bug, please [open an issue](https://github.com/steerdock/FormatDirectory/issues) on GitHub. Include as much detail as possible, such as:
 - Your VS Code version
 - Extension version
 - Steps to reproduce the bug
@@ -21,8 +21,8 @@ We love hearing your ideas! Feel free to open an issue to suggest a new feature 
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/steerdock/format-dir.git
-    cd format-dir
+    git clone https://github.com/steerdock/FormatDirectory.git
+    cd FormatDirectory
     ```
 2.  **Install dependencies**:
     ```bash
